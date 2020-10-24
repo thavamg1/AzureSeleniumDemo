@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN">
+
+	<Appenders>
+		<Console name="Console" target="SYSTEM_OUT">
+			<PatternLayout>
+				  <Pattern>%d{yyyy-MM-dd_HH:mm:ss.SSS} [%mdc{traceId}] [%mdc{spanId}] [%thread] %-5level %logger{36} %msg%n</Pattern>
+			</PatternLayout>
+		</Console>
+
+		<Console name="Event" target="SYSTEM_OUT">
+			<PatternLayout pattern="event %msg%n" />
+		</Console>
+	</Appenders>
+	
+	
+
+	<Loggers>
+
+		<Logger name="com.theaa" level="DEBUG" additivity="false">
+			<AppenderRef ref="Console" />
+		</Logger>
+
+		<Logger name="event" level="INFO" additivity="false">
+			<AppenderRef ref="Event" />
+		</Logger>
+		
+		<Root level="WARN">
+			<AppenderRef ref="Console" />
+		</Root>
+
+	</Loggers>
+</Configuration>

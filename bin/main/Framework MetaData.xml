@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<FrameworkMetaData xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+	<Framework>CRAFT_Gradle</Framework>
+	<Language>Java</Language>
+	<CurrentVersion>
+		<Number>3.2</Number>
+		<Date>4/12/2019</Date>
+	</CurrentVersion>
+</FrameworkMetaData>

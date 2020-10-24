@@ -1,0 +1,151 @@
+buildscript {
+
+	repositories {
+		maven { url "http://aa-rhvm03.theaa.local:18081/nexus/content/groups/public-snapshots"}
+	}
+
+}
+apply plugin: 'maven-publish'
+apply plugin: 'maven'
+apply plugin: 'java'
+apply plugin: 'eclipse'
+apply plugin: 'application'
+mainClassName = 'com.theaa.dip.automation.ua.allocator.Allocator'
+
+
+sourceCompatibility = 1.8
+
+repositories {
+	maven { url "http://aa-rhvm03.theaa.local:18081/nexus/content/groups/public"}
+	mavenLocal() //for local testing with lib
+}
+
+
+group = 'com.theaa'
+version = System.getenv('VERSION') ?: "${rootProject.file('version').text.trim()}-SNAPSHOT"
+
+
+project.ext {
+        artifactGroup='com.theaa.dip'
+        artifactName='automation-ua'
+}
+
+
+compileJava {
+    options.compilerArgs << '-parameters'
+}
+
+jar {
+	from { configurations.compile.collect { it.isDirectory() ? it : zipTree(it) } }
+
+    manifest {
+        attributes 'Main-Class': 'com.theaa.dip.automation.ua.allocator.Allocator'
+    }
+    
+}
+
+ext {
+	TESTNG_SUITE_FILE_BASE_PATH = 'src/main/resources'
+}
+
+dependencies {
+	compile 'com.theaa.dip:instrument-logging:1.0.+'
+	compile 'com.theaa.dip:lib-automation-journeys:1.0.+'
+	compile 'org.slf4j:slf4j-api:1.7.25'
+	compile 'org.apache.logging.log4j:log4j:2.12.0'
+	compile 'com.typesafe:config:1.3.4'
+	// Selenium Dependency
+	compile 'org.seleniumhq.selenium:selenium-server:3.14.0'
+    compile 'junit:junit:4.12'
+    // Phantom Dependency
+    compile 'com.codeborne:phantomjsdriver:1.4.0'
+    // Appium Dependency
+    compile 'io.appium:java-client:7.0.0'
+    //TestNG Dependency
+    compile 'org.testng:testng:6.14.3'
+    // Added for JIRA Dependency
+    compile 'com.sun.jersey:jersey-client:1.19'
+    // Apache POI Dependency
+    compile 'org.apache.poi:poi:3.17'
+    compile 'org.apache.poi:poi-ooxml:3.17'
+    // Extent Reporting
+    //[group: 'com.vimalselvam', name: 'cucumber-extentsreport', version: '3.1.0'],
+    compile 'com.aventstack:extentreports:3.1.1'
+    // Rest Assured
+    compile 'io.rest-assured:rest-assured:3.0.7'
+    // Fastest Dependency
+    compile 'com.cognizant:devicefarm:1.0.0'
+}
+
+
+uploadArchives {
+    repositories {
+       mavenDeployer {
+             snapshotRepository(url: "http://10.136.13.171/repository/maven-snapshots") {
+             authentication(userName: "deployment", password: "deploy123")
+               }
+            repository(url: "http://10.136.13.171/repository/maven-releases") {
+             authentication(userName: "deployment", password: "deploy123")
+               }
+             pom.version = version
+             pom.artifactId = project.ext.artifactName
+             pom.groupId = project.ext.artifactGroup
+       }
+    }
+}
+
+
+
+task printVersion << { logger.quiet version }
+task printJar << { logger.quiet jar.archiveName }
+
+//Allocator task
+task runAllocator(type: JavaExec) {
+	main = 'com.theaa.dip.automation.ua.allocator.Allocator'
+	classpath = sourceSets.main.runtimeClasspath
+	
+	if (project.hasProperty('myArgs')){
+	    args project.myArgs.split(',')
+	  }
+	
+}
+
+//TestNG task 1
+task runRegressionSuite(type: Test) {
+
+	doFirst {
+		mkdir "$buildDir/CRAFTReports"
+		systemProperty "ReportPath", "$buildDir/CRAFTReports" //set system property to generate in build path for CI/CD pipeline
+	}
+	
+	//testLogging.showStandardStreams = true //output from standard out or error is shown in Gradle output
+	
+	/*
+	 * Tells Gradle to use TestNG
+	 */
+	useTestNG {
+		suites TESTNG_SUITE_FILE_BASE_PATH + '/testng_regression.xml' //location of TestNG suite xml file
+		//includeGroups 'smoke' // define the group name
+	}
+}
+
+//TestNG task
+task runSanitySuite(type: Test) {
+	doFirst {
+		mkdir "$buildDir/CRAFTReports"
+		systemProperty "ReportPath", "$buildDir/CRAFTReports"
+	}
+	
+	useTestNG {
+		suites TESTNG_SUITE_FILE_BASE_PATH + '/testng_sanity.xml'
+	}
+}
+
+
+/* gradle build gets failed if .xlsm file is not excluded
+*  Failed to capture snapshot of input files for task ':processTestResources' property 'rootSpec$1' during up-to-date check.
+*  > Failed to create MD5 hash for file 'D:\Vignesh\EclipseWorkspaces\Oxygen3aWorkspace\CRAFT_Gradle\src\test\resources\~$Run Manager.xlsm'.
+*/
+processTestResources {
+	exclude '*.xlsm'
+}

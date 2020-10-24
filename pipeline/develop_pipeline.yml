@@ -1,0 +1,169 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Dev Pipeline
+Parameters:
+  Platform:
+    Type: String
+    Description: Platform
+    Default: "dip"
+  ServiceName:
+    Type: String
+    Description: Name of Service e.g. Project
+  PipelineBucket:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Description: Name of bucket to use for the CodePipeline artifacts
+    Default: "/PipelineBucket"
+  SourceBucket:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: "/SourceBucket"
+  GithubOwner:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Description: Github Owner
+    Default: "/GithubOwner"
+  GithubRepo:
+    Type: String
+    Description: Github Repo
+  GithubUsers:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Description: Github User
+    Default: "/GithubUsers"
+  GithubToken:
+    Type: String
+    Description: injected SSM Secure Parameter
+    NoEcho: true
+  BuildImage:
+    Type: String
+    Default: "aws/codebuild/java:openjdk-8"
+  CyclingSecret:
+    Type: String
+    Description: injected secret that should cycle on every deploy
+    NoEcho: true   
+Resources:
+  BuildLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    Properties:
+      LogGroupName: !Join ["/", ["/aws/pipeline", !Ref "AWS::StackName" ]]
+      RetentionInDays: 30
+  CodeBuild:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub ${Platform}-${ServiceName}-develop
+      LogsConfig:
+        CloudWatchLogs:
+          Status:  ENABLED
+          GroupName:  !Ref BuildLogGroup
+          StreamName:  build 
+      EncryptionKey: !ImportValue PipelineKMS
+      Description: Build artifact from source
+      ServiceRole: !ImportValue CodeBuildRole
+      Cache:
+        Type: S3
+        Location: !Sub ${PipelineBucket}/${Platform}-${ServiceName}/_cache/artifact
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: !Ref BuildImage
+        PrivilegedMode: True
+        EnvironmentVariables: []
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            install:
+              commands:
+                - echo Install Phase `date`
+                - chmod 755 gradlew
+            pre_build:
+              commands:
+                - echo Pre-Build Phase `date`
+                - RELEASE=$(cat version)
+                - SHORTHASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | head -c8)
+                - VERSION="${RELEASE}-SNAPSHOT"
+                - echo version $VERSION
+            build:
+              commands:
+                - echo Build Phase `date`
+                - ./gradlew clean build uploadArchives --configure-on-demand
+      TimeoutInMinutes: 30
+      VpcConfig:
+        VpcId: !ImportValue VpcId
+        Subnets: !Split [ ",", !ImportValue PrivateSubnetIds]
+        SecurityGroupIds: [!ImportValue CodeBuildSecurityGroup]
+      Tags:
+      - Key: Project
+        Value: !Sub ${Platform}-${ServiceName}
+
+  DevelopWebhook:
+    Type: AWS::CodePipeline::Webhook
+    Properties:
+      AuthenticationConfiguration:
+        SecretToken: !Ref CyclingSecret
+      Filters:
+      - JsonPath: "$.ref"
+        MatchEquals: refs/heads/{Branch}
+      Authentication: GITHUB_HMAC
+      TargetPipeline: !Ref DevelopPipeline
+      TargetAction: Source
+      Name: !Sub ${Platform}-${ServiceName}-develop
+      TargetPipelineVersion: !GetAtt DevelopPipeline.Version
+      RegisterWithThirdParty: 'true'
+  DevelopPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      RoleArn: !ImportValue CodePipelineRole
+      Name: !Sub ${Platform}-${ServiceName}-develop
+      Stages:
+      - Name: Source
+        Actions:
+        - Name: Source
+          InputArtifacts: []
+          OutputArtifacts:
+          - Name: Source
+          ActionTypeId:
+            Category: Source
+            Owner: ThirdParty
+            Version: '1'
+            Provider: GitHub
+          Configuration:
+              Owner: !Ref GithubOwner
+              Repo: !Ref GithubRepo
+              Branch: develop
+              OAuthToken: !Ref GithubToken
+              PollForSourceChanges: false
+          RunOrder: 10
+      - Name: Build
+        Actions:
+        - Name: Build
+          ActionTypeId:
+            Category: Build
+            Owner: AWS
+            Version: '1'
+            Provider: CodeBuild
+          InputArtifacts:
+          - Name: Source
+          Configuration:
+            ProjectName: !Ref CodeBuild
+          RunOrder: 10
+
+      ArtifactStore:
+        Type: S3
+        EncryptionKey:
+          Id: !ImportValue PipelineKMS
+          Type: KMS
+        Location: !Ref PipelineBucket
+
+
+Outputs:
+  PipelineUrl:
+    Value:
+      Fn::Join:
+      - ''
+      - - https://console.aws.amazon.com/codepipeline/home?region=
+        - Ref: AWS::Region
+        - "#/view/"
+        - Ref: DevelopPipeline
+
